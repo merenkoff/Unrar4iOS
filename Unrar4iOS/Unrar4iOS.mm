@@ -7,16 +7,20 @@
 //
 
 #import "Unrar4iOS.h"
+#import "RARExtractException.h"
+#import "raros.hpp"
+#import "dll.hpp"
 
 @interface Unrar4iOS(PrivateMethods)
--(BOOL)_unrarOpenFile:(NSString*)rarFile mode:(NSInteger)mode;
--(BOOL)_unrarOpenFile:(NSString*)rarFile password:(NSString*)password;
+-(BOOL)_unrarOpenFile:(NSString*)rarFile inMode:(NSInteger)mode;
+-(BOOL)_unrarOpenFile:(NSString*)rarFile withpassword:(NSString*)password;
+-(BOOL)_unrarOpenFile:(NSString*)rarFile inMode:(NSInteger)mode withPassword:(NSString*)password;
 -(BOOL)_unrarCloseFile;
 @end
 
 @implementation Unrar4iOS
 
-@synthesize filename;
+@synthesize filename, password;
 
 int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 	UInt8 **buffer;
@@ -38,12 +42,29 @@ int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 }
 
 -(BOOL) unrarOpenFile:(NSString*)rarFile {
+    
+	return [self unrarOpenFile:rarFile withPassword:nil];
+}
+
+-(BOOL) unrarOpenFile:(NSString*)rarFile withPassword:(NSString *)aPassword {
+    
 	self.filename = rarFile;
+    self.password = aPassword;
 	return YES;
 }
 
--(BOOL) _unrarOpenFile:(NSString*)rarFile mode:(NSInteger)mode{
+-(BOOL) _unrarOpenFile:(NSString*)rarFile inMode:(NSInteger)mode{
 	
+    return [self _unrarOpenFile:rarFile inMode:mode withPassword:nil];
+}
+
+-(BOOL) _unrarOpenFile:(NSString*)rarFile withPassword:(NSString*)aPassword {
+	
+    return [self _unrarOpenFile:rarFile inMode:RAR_OM_LIST withPassword:aPassword];
+}
+
+- (BOOL)_unrarOpenFile:(NSString *)rarFile inMode:(NSInteger)mode withPassword:(NSString *)aPassword {
+    
 	header = new RARHeaderDataEx;
 	flags  = new RAROpenArchiveDataEx;
 	
@@ -59,19 +80,19 @@ int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 		return NO;
 	
 	header->CmtBuf = NULL;	
-
-	return YES;
-}
-
--(BOOL) _unrarOpenFile:(NSString*)rarFile password:(NSString*)password {
-	
-	return NO;
+    
+    if(aPassword != nil) {
+        char *_password = (char *) [aPassword UTF8String];
+        RARSetPassword(_rarFile, _password);
+    }
+    
+	return YES;    
 }
 
 -(NSArray *) unrarListFiles {
 	int RHCode = 0, PFCode = 0;
 
-	[self _unrarOpenFile:filename mode:RAR_OM_LIST];
+	[self _unrarOpenFile:filename inMode:RAR_OM_LIST withPassword:password];
 	
 	NSMutableArray *files = [NSMutableArray array];
 	while ((RHCode = RARReadHeaderEx(_rarFile, header)) == 0) {
@@ -99,7 +120,7 @@ int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 
 	int RHCode = 0, PFCode = 0;
 	
-	[self _unrarOpenFile:filename mode:RAR_OM_EXTRACT];
+	[self _unrarOpenFile:filename inMode:RAR_OM_EXTRACT withPassword:password];
 	
 	while ((RHCode = RARReadHeaderEx(_rarFile, header)) == 0) {
 		NSString *_filename = [NSString stringWithCString:header->FileName encoding:NSASCIIStringEncoding];
@@ -127,10 +148,25 @@ int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 	RARSetCallback(_rarFile, CallbackProc, (long) &callBackBuffer);
 	
 	PFCode = RARProcessFile(_rarFile, RAR_TEST, NULL, NULL);
-	
-	[self _unrarCloseFile];
-	
-	return [NSData dataWithBytes:buffer length:length];
+
+    [self _unrarCloseFile];
+    if(PFCode == ERAR_MISSING_PASSWORD) {
+        RARExtractException *exception = [RARExtractException exceptionWithStatus:RARArchiveProtected];
+        @throw exception;           
+        return nil;
+    }
+    if(PFCode == ERAR_BAD_ARCHIVE) {
+        RARExtractException *exception = [RARExtractException exceptionWithStatus:RARArchiveInvalid];
+        @throw exception;           
+        return nil;
+    }
+    if(PFCode == ERAR_UNKNOWN_FORMAT) {
+        RARExtractException *exception = [RARExtractException exceptionWithStatus:RARArchiveBadFormat];
+        @throw exception;           
+        return nil;
+    }
+    
+    return [NSData dataWithBytes:buffer length:length];
 }
 
 -(BOOL) _unrarCloseFile {
@@ -148,6 +184,7 @@ int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
 
 -(void) dealloc {
 	[filename release];
+    [password release];
 	[super dealloc];
 }
 
