@@ -7,6 +7,7 @@
 //
 
 #import "UnrarExampleViewController.h"
+#import <Unrar4IOS/RARExtractException.h>
 
 @implementation UnrarExampleViewController
 
@@ -45,7 +46,8 @@
 */
 
 - (IBAction)decompress:(id)sender {
-	NSString *filePath = [[NSBundle mainBundle] pathForResource:@"Venom - Licença para Matar #01" ofType:@"cbr"]; 
+	//NSString *filePath = [[NSBundle mainBundle] pathForResource:@"not_protected" ofType:@"cbr"]; 
+    NSString *filePath = [[NSBundle mainBundle] pathForResource:@"protected" ofType:@"cbr"]; 
 
 	Unrar4iOS *unrar = [[Unrar4iOS alloc] init];
 	BOOL ok = [unrar unrarOpenFile:filePath];
@@ -56,11 +58,20 @@
 		}
 		
 		// Extract a stream
-		NSData *data = [unrar extractStream:[files objectAtIndex:0]];
-		if (data != nil) {
-			UIImage *image = [UIImage imageWithData:data];
-			imageView.image = image;
-		}
+        try {
+            NSData *data = [unrar extractStream:[files objectAtIndex:0]];
+            if (data != nil) {
+                UIImage *image = [UIImage imageWithData:data];
+                imageView.image = image;
+            }
+        }
+        catch(RARExtractException *error) {
+            
+            if(error.status == RARArchiveProtected) {
+                
+                NSLog(@"Password protected archive!");
+            }
+        }
 						
 		[unrar unrarCloseFile];
 	}
